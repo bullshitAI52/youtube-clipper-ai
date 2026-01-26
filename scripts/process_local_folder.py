@@ -15,7 +15,7 @@ TRANSCRIBE_SCRIPT = SCRIPT_DIR / "transcribe_video.py"
 TRANSLATE_SCRIPT = SCRIPT_DIR / "auto_translate_full.py"
 BURN_SCRIPT = SCRIPT_DIR / "burn_subtitles.py"
 
-def process_local_folder(folder_path: str, mode: str = 'bilingual'):
+def process_local_folder(folder_path: str, mode: str = 'bilingual', target_lang: str = 'zh-CN', reverse: bool = False):
     folder = Path(folder_path)
     if not folder.exists() or not folder.is_dir():
         print(f"❌ 错误: 目录不存在: {folder}")
@@ -34,8 +34,6 @@ def process_local_folder(folder_path: str, mode: str = 'bilingual'):
     for i, video in enumerate(videos, 1):
         print(f"\n--- [{i}/{len(videos)}] 正在处理: {video.name} ---")
         
-        # A. 检查/生成字幕
-        # 寻找同名或 .en.vtt / .en.srt / .srt
         expected_subs = [
             video.with_suffix(".en.vtt"),
             video.with_suffix(".vtt"),
@@ -43,10 +41,24 @@ def process_local_folder(folder_path: str, mode: str = 'bilingual'):
             video.with_suffix(".srt")
         ]
         
+        expected_zh_subs = [
+            video.with_suffix(".zh.vtt"),
+            video.with_suffix(".zh-Hans.vtt"),
+            video.with_suffix(".zh-CN.vtt"),
+            video.with_suffix(".zh.srt"),
+            video.with_suffix(".zh-Hans.srt")
+        ]
+        
         original_sub = None
         for s in expected_subs:
             if s.exists():
                 original_sub = s
+                break
+        
+        existing_zh_sub = None
+        for s in expected_zh_subs:
+            if s.exists():
+                existing_zh_sub = s
                 break
         
         if not original_sub:
@@ -70,12 +82,19 @@ def process_local_folder(folder_path: str, mode: str = 'bilingual'):
         target_sub = video.with_suffix(suffix)
         
         if not target_sub.exists():
-            print(f"🌐 正在生成字幕文件 (模式: {mode})...")
-            cmd = [sys.executable, str(TRANSLATE_SCRIPT), str(original_sub), "--mode", mode]
+            if mode == 'bilingual' and existing_zh_sub and target_lang == 'zh-CN':
+                print(f"🔗 发现已有的中文字幕 {existing_zh_sub.name}，正在执行双语合并 (跳过 AI 翻译)...")
+                cmd = [sys.executable, str(TRANSLATE_SCRIPT), str(original_sub), "--merge", str(existing_zh_sub)]
+                if reverse: cmd.append("--reverse")
+            else:
+                print(f"🌐 正在生成字幕文件 (模式: {mode}, 目标语言: {target_lang})...")
+                cmd = [sys.executable, str(TRANSLATE_SCRIPT), str(original_sub), "--mode", mode, "--target", target_lang]
+                if reverse: cmd.append("--reverse")
+            
             try:
                 subprocess.run(cmd, check=True)
             except Exception as e:
-                print(f"❌ 字幕转换失败: {e}")
+                print(f"❌ 字幕处理失败: {e}")
                 continue
         else:
             print(f"✅ 已存在目标字幕: {target_sub.name}")
@@ -100,10 +119,12 @@ def main():
     parser = argparse.ArgumentParser(description="批量处理本地视频：识别 -> 翻译 -> 烧录")
     parser.add_argument("folder", nargs="?", default="./download", help="视频所在目录")
     parser.add_argument("--mode", choices=['bilingual', 'zh', 'en'], default='bilingual', 
-                        help="字幕模式: bilingual (双语), zh (纯中), en (纯英)")
+                        help="字幕模式: bilingual (双语), zh (纯译), en (纯原)")
+    parser.add_argument("--target", default='zh-CN', help="目标语言 (如 zh-CN, en)")
+    parser.add_argument("--reverse", action="store_true", help="双语顺序反转")
     
     args = parser.parse_args()
-    process_local_folder(args.folder, args.mode)
+    process_local_folder(args.folder, args.mode, args.target, args.reverse)
 
 if __name__ == "__main__":
     main()

@@ -58,15 +58,24 @@ def transcribe_video(video_path: str, model_name: str = "base", output_path: str
         whisper_cmd,
         str(video_path),
         "--model", model_name,
-        "--output_format", "srt",
+        "--output_format", "all",  # 生成所有格式（包括 json, srt）以便后续解析
         "--output_dir", str(output_dir),
         "--language", "English"
     ]
     
+    # 启用逐字时间戳（如果可用）
+    cmd.extend(["--word_timestamps", "True"])
+    
+    # 设置包含 FFmpeg 的环境变量
+    env = os.environ.copy()
+    ffmpeg_extra_path = "/opt/homebrew/opt/ffmpeg-full/bin"
+    if ffmpeg_extra_path not in env.get("PATH", ""):
+        env["PATH"] = f"{ffmpeg_extra_path}:{env.get('PATH', '')}"
+
     print(f"   正在转录（这可能需要几分钟）...")
     try:
         # 直接运行命令
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
         
         if result.returncode != 0:
             print(f"❌ Whisper command failed with exit code {result.returncode}")

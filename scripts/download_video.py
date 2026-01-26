@@ -86,7 +86,7 @@ def download_video(url: str, output_dir: str = None, only_subs: bool = False, ma
         # 下载字幕
         'writesubtitles': True,
         'writeautomaticsub': True,  # 自动字幕作为备选
-        'subtitleslangs': ['en'],   # 英文字幕
+        'subtitleslangs': ['en', 'zh', 'zh-Hans', 'zh-Hant', 'zh-CN', 'zh-TW'], # 尝试下载中英双语
         'subtitlesformat': 'vtt',   # VTT 格式
 
         # 不下载缩略图
@@ -138,35 +138,38 @@ def download_video(url: str, output_dir: str = None, only_subs: bool = False, ma
                 file_size = 0
                 print(f"\n✅ 视频信息获取完成 (已跳过下载)")
 
-            # 查找字幕文件
+            # 优先查找英文字幕作为原始源
             subtitle_path = None
+            zh_subtitle_path = None
             
-            # 如果 video_path 为 None，我们需要构造一个预期的视频路径来推算字幕路径
             # ydl.prepare_filename 即使在 skip_download=True 也会给出预期的 mp4 路径
             expected_video_path = Path(ydl.prepare_filename(info))
+            
+            # 查找所有可能的字幕文件
+            all_subs = list(expected_video_path.parent.glob(f"{expected_video_path.stem}.*vtt"))
+            for sub in all_subs:
+                if '.en.' in sub.name:
+                    subtitle_path = sub
+                elif any(lang in sub.name for lang in ['.zh.', '.zh-Hans.', '.zh-CN.', '.zh-Hant.', '.zh-TW.']):
+                    zh_subtitle_path = sub
 
-            subtitle_exts = ['.en.vtt', '.vtt']
-            for ext in subtitle_exts:
-                potential_sub = expected_video_path.with_suffix(ext)
-                # 处理带语言代码的字幕文件
-                if not potential_sub.exists():
-                    # 尝试 <filename>.en.vtt 格式
-                    stem = expected_video_path.stem
-                    potential_sub = expected_video_path.parent / f"{stem}.en.vtt"
-
-                if potential_sub.exists():
-                    subtitle_path = potential_sub
-                    break
+            # 如果没找到带语言标签的，尝试默认后缀
+            if not subtitle_path and expected_video_path.with_suffix('.vtt').exists():
+                subtitle_path = expected_video_path.with_suffix('.vtt')
 
             if subtitle_path and subtitle_path.exists():
-                print(f"✅ 字幕下载完成: {subtitle_path.name}")
-            else:
-                print(f"⚠️  未找到英文字幕")
+                print(f"✅ 英文字幕下载完成: {subtitle_path.name}")
+            if zh_subtitle_path and zh_subtitle_path.exists():
+                print(f"✅ 中文字幕下载完成: {zh_subtitle_path.name}")
+            
+            if not subtitle_path and not zh_subtitle_path:
+                print(f"⚠️  未找到任何字幕")
                 print(f"   提示：某些视频可能没有字幕或需要自动生成")
 
             return {
                 'video_path': str(video_path) if video_path else None,
                 'subtitle_path': str(subtitle_path) if subtitle_path else None,
+                'zh_subtitle_path': str(zh_subtitle_path) if zh_subtitle_path else None,
                 'title': title,
                 'duration': duration,
                 'file_size': file_size,

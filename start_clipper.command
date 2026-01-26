@@ -18,6 +18,7 @@ BATCH_SCRIPT="$SCRIPT_DIR/scripts/batch_processor.py"
 DOWNLOAD_SCRIPT="$SCRIPT_DIR/scripts/download_video.py"
 TRANSCRIBE_SCRIPT="$SCRIPT_DIR/scripts/transcribe_video.py"
 LOCAL_BATCH_SCRIPT="$SCRIPT_DIR/scripts/process_local_folder.py"
+KARAOKE_SCRIPT="$SCRIPT_DIR/scripts/karaoke_processor.py"
 OUTPUT_ROOT="$SCRIPT_DIR/download"
 
 # 确保能找到 pip 安装的包
@@ -61,9 +62,11 @@ while true; do
     echo "4. 🚀 批量加字幕 (本地 download 文件夹 -> 双语视频)"
     echo "5. ✂️  一键处理 (准备: 剪辑 + 提取)"
     echo "6. 🔥 一键终结 (烧录: 字幕 + 输出)"
-    echo "7. 🚪 退出"
+    echo "7. ✨ 动态高亮模式 (点读机效果)"
+    echo "8. 🎬 蹦蹦蹦模式 (逐字跳出效果)"
+    echo "9. 🚪 退出"
 
-    read -p "请输入选项 (1-7) 或直接粘贴 YouTube 链接: " choice
+    read -p "请输入选项 (1-9) 或直接粘贴 YouTube 链接: " choice
 
     # 如果输入的是链接（包含 http），自动切换到下载模式
     if [[ $choice == *"http"* ]]; then
@@ -159,21 +162,44 @@ while true; do
         echo -e "\n${YELLOW}--- 模式 4: 本地视频批量加字幕 ---${NC}"
         echo "该模式将自动处理 $OUTPUT_ROOT 文件夹下的所有视频。"
         
-        echo -e "\n${CYAN}选择字幕模式:${NC}"
-        echo "1. 中英双语 (默认)"
-        echo "2. 纯中文"
-        echo "3. 纯英文 (保持原样)"
-        read -p "请输入选项 (1-3): " m_choice
+        echo -e "\n${CYAN}请选择具体的加字幕功能:${NC}"
+        echo "1. 📖 英加中 (Bilingual: 英文在上, 中文在下)"
+        echo "2. 📖 中加英 (Bilingual: 中文在上, 英文在下)"
+        echo "3. 🇨🇳 纯中文 (Single: 仅显示中文)"
+        echo "4. 🇺🇸 纯英文 (Single: 仅显示英文)"
+        read -p "请输入选项 (1-4, 默认 1): " m_choice
         
         mode="bilingual"
+        target="zh-CN"
+        reverse_flag=""
+        
         case $m_choice in
-            1) mode="bilingual" ;;
-            2) mode="zh" ;;
-            3) mode="en" ;;
+            1) # 英加中: 英文(原)在上, 中文(译)在下
+               mode="bilingual"
+               target="zh-CN"
+               reverse_flag="--reverse" 
+               ;;
+            2) # 中加英: 中文(原)在上, 英文(译)在下
+               mode="bilingual"
+               target="en"
+               reverse_flag="--reverse"
+               ;;
+            3) # 纯中文
+               mode="zh"
+               target="zh-CN"
+               ;;
+            4) # 纯英文
+               mode="en"
+               ;;
+            *) # 默认英加中
+               mode="bilingual"
+               target="zh-CN"
+               reverse_flag="--reverse"
+               ;;
         esac
         
-        echo -e "\n${GREEN}🚀 开始执行处理 (模式: $mode)...${NC}"
-        python3 "$LOCAL_BATCH_SCRIPT" "$OUTPUT_ROOT" --mode "$mode"
+        echo -e "\n${GREEN}🚀 开始执行处理 (功能: $m_choice)...${NC}"
+        python3 "$LOCAL_BATCH_SCRIPT" "$OUTPUT_ROOT" --mode "$mode" --target "$target" $reverse_flag
         
         echo "按回车键继续..."
         read
@@ -236,6 +262,70 @@ while true; do
              python3 "$BATCH_SCRIPT" "$video_path" "$subtitle_path" "$chapters_json" --finalize
         fi
         echo "按回车键继续..."
+        read
+
+    elif [[ $choice == "7" ]]; then
+        echo -e "\n${YELLOW}--- 模式 7: ✨ 动态高亮模式 (Karaoke) ---${NC}"
+        echo "该模式将生成逐字变色的高亮字幕，适合知识分享或歌词类视频。"
+        echo "请输入视频文件路径 (默认: $OUTPUT_ROOT):"
+        read -e video_path
+        # 处理可能的空格或引号
+        video_path=${video_path//\'/}
+        video_path=${video_path//\"/}
+        video_path=${video_path:-$OUTPUT_ROOT}
+
+        if [[ -d "$video_path" ]]; then
+            # 如果是目录，列出文件让用户选
+            echo -e "\n${CYAN}发现以下视频:${NC}"
+            ls "$video_path"/*.mp4 2>/dev/null
+            read -p "请输入具体视频文件名 (或回车处理目录下第一个 MP4): " v_file
+            if [[ -n "$v_file" ]]; then
+                video_full_path="$video_path/$v_file"
+            else
+                video_full_path=$(ls "$video_path"/*.mp4 2>/dev/null | head -n 1)
+            fi
+        else
+            video_full_path="$video_path"
+        fi
+
+        if [[ -z "$video_full_path" || ! -f "$video_full_path" ]]; then
+            echo -e "${RED}❌ 未找到有效的视频文件: $video_full_path${NC}"
+        else
+            echo -e "\n${GREEN}🚀 启动动态高亮流程...${NC}"
+            python3 "$KARAOKE_SCRIPT" "$video_full_path"
+        fi
+        echo -e "\n按回车键继续..."
+        read
+
+    elif [[ $choice == "8" ]]; then
+        echo -e "\n${YELLOW}--- 模式 8: 🎬 蹦蹦蹦模式 (Jump-out) ---${NC}"
+        echo "该模式字随声出，背景更干净，视觉冲击力强。"
+        echo "请输入视频文件路径 (默认: $OUTPUT_ROOT):"
+        read -e video_path
+        video_path=${video_path//\'/}
+        video_path=${video_path//\"/}
+        video_path=${video_path:-$OUTPUT_ROOT}
+
+        if [[ -d "$video_path" ]]; then
+            echo -e "\n${CYAN}发现以下视频:${NC}"
+            ls "$video_path"/*.mp4 2>/dev/null
+            read -p "请输入具体视频文件名 (或回车处理目录下第一个 MP4): " v_file
+            if [[ -n "$v_file" ]]; then
+                video_full_path="$video_path/$v_file"
+            else
+                video_full_path=$(ls "$video_path"/*.mp4 2>/dev/null | head -n 1)
+            fi
+        else
+            video_full_path="$video_path"
+        fi
+
+        if [[ -z "$video_full_path" || ! -f "$video_full_path" ]]; then
+             echo -e "${RED}❌ 未找到有效的视频文件。${NC}"
+        else
+            echo -e "\n${GREEN}🚀 启动蹦蹦蹦流程...${NC}"
+            python3 "$KARAOKE_SCRIPT" "$video_full_path" "popout"
+        fi
+        echo -e "\n按回车键继续..."
         read
 
     else

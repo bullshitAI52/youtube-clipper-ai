@@ -175,7 +175,18 @@ def burn_subtitles(
     # --- 自动检测视频比例并计算字幕样式 ---
     try:
         # 获取分辨率
-        ffprobe_path = ffmpeg_path.replace('ffmpeg', 'ffprobe')
+        if ffmpeg_path:
+            # 尝试在同一个目录下寻找 ffprobe
+            ffmpeg_dir = Path(ffmpeg_path).parent
+            ffprobe_path = str(ffmpeg_dir / "ffprobe")
+            if not os.path.exists(ffprobe_path):
+                ffprobe_path = shutil.which('ffprobe')
+        else:
+            ffprobe_path = shutil.which('ffprobe')
+
+        if not ffprobe_path:
+            raise RuntimeError("ffprobe not found")
+
         probe_cmd = [
             ffprobe_path, '-v', 'error', '-select_streams', 'v:0',
             '-show_entries', 'stream=width,height', '-of', 'json', str(video_path)
@@ -224,7 +235,11 @@ def burn_subtitles(
 
         # 构建 FFmpeg 命令
         # 使用 subtitles 滤镜烧录字幕
-        subtitle_filter = f"subtitles={temp_subtitle}:force_style='FontSize={font_size},MarginV={margin_v}'"
+        if subtitle_path.suffix.lower() == '.ass':
+            # ASS 字幕通常自带样式，不强制重写（除非后续需要动态调整渲染）
+            subtitle_filter = f"subtitles={temp_subtitle}"
+        else:
+            subtitle_filter = f"subtitles={temp_subtitle}:force_style='FontSize={font_size},MarginV={margin_v}'"
 
         cmd = [
             ffmpeg_path,
