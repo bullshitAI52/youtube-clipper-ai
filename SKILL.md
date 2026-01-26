@@ -20,7 +20,7 @@ model: claude-sonnet-4-5-20250514
 
 ## 工作流程
 
-你将按照以下 6 个阶段执行 YouTube 视频剪辑任务：
+你将按照以下 7 个阶段执行 YouTube 视频剪辑任务：
 
 ### 阶段 1: 环境检测
 
@@ -47,6 +47,7 @@ model: claude-sonnet-4-5-20250514
    ```bash
    python3 -c "import yt_dlp; print('✅ yt-dlp available')"
    python3 -c "import pysrt; print('✅ pysrt available')"
+   python3 -c "import whisper; print('✅ whisper available')"
    ```
 
 **如果环境检测失败**:
@@ -55,7 +56,7 @@ model: claude-sonnet-4-5-20250514
   ```bash
   brew install ffmpeg-full  # macOS
   ```
-- Python 依赖缺失: 提示 `pip install pysrt python-dotenv`
+- Python 依赖缺失: 提示 `pip install pysrt python-dotenv openai-whisper`
 
 **注意**:
 - 标准 Homebrew FFmpeg 不包含 libass，无法烧录字幕
@@ -79,6 +80,7 @@ model: claude-sonnet-4-5-20250514
 3. 脚本会：
    - 下载视频（最高 1080p，mp4 格式）
    - 下载英文字幕（VTT 格式，自动字幕作为备选）
+   - **注意**: 目前仅支持下载英文字幕，忽略原视频的其他语言字幕（包括中文）。
    - 输出文件路径和视频信息
 
 4. 向用户展示：
@@ -93,7 +95,24 @@ model: claude-sonnet-4-5-20250514
 
 ---
 
-### 阶段 3: 分析章节（核心差异化功能）
+### 阶段 3: AI 转录 (针对无字幕视频)
+
+**目标**: 如果视频没有下载到字幕，使用 Whisper 生成字幕
+
+1. 调用 transcribe_video.py 脚本
+   ```bash
+   python3 scripts/transcribe_video.py <video_path>
+   ```
+
+2. 脚本会：
+   - 提取视频音频并使用 Whisper (base 模型) 进行转录
+   - 生成标准的英文字幕文件 (.en.srt)
+
+3. 展示转录结果和生成的字幕路径。
+
+---
+
+### 阶段 4: 分析章节（核心差异化功能）
 
 **目标**: 使用 Claude AI 分析字幕内容，生成精细章节（2-5 分钟级别）
 
@@ -129,153 +148,72 @@ model: claude-sonnet-4-5-20250514
    ```
    📊 分析完成，生成 X 个章节：
 
-   1. [00:00 - 03:15] AGI 不是时间点，是指数曲线
-      核心: AI 模型能力每 4-12 月翻倍，工程师已用 Claude 写代码
-      关键词: AGI、指数增长、Claude Code
-
-   2. [03:15 - 06:30] 中国在 AI 上的差距
-      核心: 芯片禁运卡住中国，DeepSeek benchmark 优化不代表实力
-      关键词: 中国、芯片禁运、DeepSeek
-
    ... (所有章节)
 
    ✓ 所有内容已覆盖，无遗漏
    ```
 
----
-
-### 阶段 4: 用户选择
-
-**目标**: 让用户选择要剪辑的章节和处理选项
-
-1. 使用 AskUserQuestion 工具让用户选择章节
-   - 提供章节编号供用户选择
-   - 支持多选（可以选择多个章节）
-
-2. 询问处理选项：
-   - 是否生成双语字幕？（英文 + 中文）
-   - 是否烧录字幕到视频？（硬字幕）
-   - 是否生成总结文案？
-
-3. 确认用户选择并展示处理计划
+**注意 (手动操作)**: 发挥 AI 最大价值的最佳方式是让 AI 手导分析字幕。如果你在本地运行且不想通过 API 逐条翻译，可以：
+1. 发送字幕给 AI 让其分析。
+2. 将 AI 提供的符合格式的 JSON 保存为 `download/chapters.json`。
+3. 如果所有文件都在 `download` 文件夹，接下来的步骤只需一路回车。
 
 ---
 
-### 阶段 5: 剪辑处理（核心执行阶段）
-
-**目标**: 并行执行多个处理任务
-
-对于每个用户选择的章节，执行以下步骤：
-
-#### 5.1 剪辑视频片段
-```bash
-python3 scripts/clip_video.py <video_path> <start_time> <end_time> <output_path>
-```
-- 使用 FFmpeg 精确剪辑
-- 保持原始视频质量
-- 输出: `<章节标题>_clip.mp4`
-
-#### 5.2 提取字幕片段
-- 从完整字幕中过滤出该时间段的字幕
-- 调整时间戳（减去起始时间，从 00:00:00 开始）
-- 转换为 SRT 格式
-- 输出: `<章节标题>_original.srt`
-
-#### 5.3 翻译字幕（如果用户选择）
-```bash
-python3 scripts/translate_subtitles.py <subtitle_path>
-```
-- **批量翻译优化**: 每批 20 条字幕一起翻译（节省 95% API 调用）
-- 翻译策略：
-  - 保持技术术语的准确性
-  - 口语化表达（适合短视频）
-  - 简洁流畅（避免冗长）
-- 输出: `<章节标题>_translated.srt`
-
-#### 5.4 生成双语字幕文件（如果用户选择）
-- 合并英文和中文字幕
-- 格式: SRT 双语（每条字幕包含英文和中文）
-- 样式: 英文在上，中文在下
-- 输出: `<章节标题>_bilingual.srt`
-
-#### 5.5 烧录字幕到视频（如果用户选择）
-```bash
-python3 scripts/burn_subtitles.py <video_path> <subtitle_path> <output_path>
-```
-- 使用 ffmpeg-full（libass 支持）
-- **使用临时目录解决路径空格问题**（关键！）
-- 字幕样式：
-  - 字体大小: 24
-  - 底部边距: 30
-  - 颜色: 白色文字 + 黑色描边
-- 输出: `<章节标题>_with_subtitles.mp4`
-
-#### 5.6 生成总结文案（如果用户选择）
-```bash
-python3 scripts/generate_summary.py <chapter_info>
-```
-- 基于章节标题、摘要和关键词
-- 生成适合社交媒体的文案
-- 包含: 标题、核心观点、适合平台（小红书、抖音等）
-- 输出: `<章节标题>_summary.md`
-
-**进度展示**:
-```
-🎬 开始处理章节 1/3: AGI 不是时间点，是指数曲线
-
-1/6 剪辑视频片段... ✅
-2/6 提取字幕片段... ✅
-3/6 翻译字幕为中文... [=====>    ] 50% (26/52)
-4/6 生成双语字幕文件... ✅
-5/6 烧录字幕到视频... ✅
-6/6 生成总结文案... ✅
-
-✨ 章节 1 处理完成
-```
-
----
-
-### 阶段 6: 输出结果
-
-**目标**: 组织输出文件并展示给用户
-
-1. 创建输出目录
-   ```
-   ./youtube-clips/<日期时间>/
-   ```
-   输出目录位于当前工作目录下
-
-2. 组织文件结构：
-   ```
-   <章节标题>/
-   ├── <章节标题>_clip.mp4              # 原始剪辑（无字幕）
-   ├── <章节标题>_with_subtitles.mp4   # 烧录字幕版本
-   ├── <章节标题>_bilingual.srt        # 双语字幕文件
-   └── <章节标题>_summary.md           # 总结文案
-   ```
-
-3. 向用户展示：
-   - 输出目录路径
-   - 文件列表（带文件大小）
-   - 快速预览命令
-
-   ```
-   ✨ 处理完成！
-
-   📁 输出目录: ./youtube-clips/20260121_143022/
-
-   文件列表:
-     🎬 AGI_指数曲线_双语硬字幕.mp4 (14 MB)
-     📄 AGI_指数曲线_双语字幕.srt (2.3 KB)
-     📝 AGI_指数曲线_总结.md (3.2 KB)
-
-   快速预览:
-   open ./youtube-clips/20260121_143022/AGI_指数曲线_双语硬字幕.mp4
-   ```
-
-4. 询问是否继续剪辑其他章节
-   - 如果是，返回阶段 4（用户选择）
-   - 如果否，结束 Skill
+### 阶段 5: 批量处理 (一键自动化)
+ 
+ **目标**: 使用批量处理脚本自动完成剪辑、提取和烧录
+ 
+ 1. **准备章节文件**
+    将 Claude 分析生成的章节信息保存为 `chapters.json`，格式如下：
+    ```json
+    [
+      {
+        "title": "章节标题1",
+        "start_time": "00:00:00",
+        "end_time": "00:03:15",
+        "summary": "核心摘要...",
+        "keywords": ["关键词1", "关键词2"]
+      },
+      ...
+    ]
+    ```
+ 
+ 2. **执行批量处理 (阶段 1: 准备)**
+    ```bash
+    python3 scripts/batch_processor.py <video_path> <subtitle_path> chapters.json
+    ```
+    - 此步骤会自动：
+      - 剪辑所有视频片段
+      - 提取对应的原始字幕 (SRT)
+      - 生成总结文案模板
+ 
+ 3. **翻译字幕 (如果需要)**
+    - Agent 读取生成的 `*_original.srt` 文件
+    - 将翻译后的内容保存为 `*_bilingual.srt` (双语) 或 `*_translated.srt` (纯译文)
+ 
+ 4. **完成烧录 (阶段 2: 终结)**
+    ```bash
+    python3 scripts/batch_processor.py <video_path> <subtitle_path> chapters.json --finalize
+    ```
+    - 此步骤会自动检测存在的翻译字幕，并将其烧录到视频中。
+ 
+ ---
+ 
+ ### 阶段 5: 输出结果
+ 
+ **目标**: 展示最终成果
+ 
+ 1. 展示输出目录结构：
+    ```
+    ./youtube-clips/<时间戳>/
+    ├── 章节1/
+    │   ├── 章节1_with_subtitles.mp4
+    │   └── 章节1_summary.md
+    ...
+    ```
+ 
+ 2. 询问是否满意或需要微调。
 
 ---
 

@@ -33,6 +33,7 @@ Desktop.ini
 youtube-clips/
 outputs/
 downloads/
+download/
 temp/
 tmp/
 
@@ -43,6 +44,9 @@ tmp/
 *.avi
 *.vtt
 *.srt
+*.json
+!chapters.json
+!package.json
 test_*.py
 *_test.py
 

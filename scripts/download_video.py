@@ -24,21 +24,23 @@ from utils import (
 )
 
 
-def download_video(url: str, output_dir: str = None) -> dict:
+def download_video(url: str, output_dir: str = None, only_subs: bool = False, max_height: int = 1080) -> dict:
     """
     下载 YouTube 视频和字幕
 
     Args:
         url: YouTube URL
         output_dir: 输出目录，默认为当前目录
+        only_subs: 是否只下载字幕，不下载视频
+        max_height: 最大视频高度，默认 1080
 
     Returns:
         dict: {
-            'video_path': 视频文件路径,
+            'video_path': 视频文件路径 (如果不下载视频则为 None),
             'subtitle_path': 字幕文件路径,
             'title': 视频标题,
             'duration': 视频时长（秒）,
-            'file_size': 文件大小（字节）
+            'file_size': 视频文件大小（字节，如果不下载则为 0）
         }
 
     Raises:
@@ -57,14 +59,26 @@ def download_video(url: str, output_dir: str = None) -> dict:
 
     output_dir = ensure_directory(output_dir)
 
-    print(f"🎬 开始下载视频...")
+    if only_subs:
+        print(f"📄 开始只下载字幕...")
+    else:
+        print(f"🎬 开始下载视频 (最高 {max_height}p)...")
     print(f"   URL: {url}")
     print(f"   输出目录: {output_dir}")
 
     # 配置 yt-dlp 选项
     ydl_opts = {
-        # 视频格式：最高 1080p，优先 mp4
-        'format': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best',
+        # 视频格式：不强制下载时的容器格式
+        'format': f'bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]/best',
+        'merge_output_format': 'mp4',
+        'skip_download': only_subs, # 如果只下载字幕，则跳过视频下载
+        
+        # 关键修复：使用 Android 客户端模拟以绕过 Web 下载限制和 impersonation 报错
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios'],
+            }
+        },
 
         # 输出模板：包含视频 ID（避免特殊字符问题）
         'outtmpl': str(output_dir / '%(id)s.%(ext)s'),
@@ -104,34 +118,45 @@ def download_video(url: str, output_dir: str = None) -> dict:
             print(f"\n📥 开始下载...")
             info = ydl.extract_info(url, download=True)
 
-            # 获取下载的文件路径
-            video_filename = ydl.prepare_filename(info)
-            video_path = Path(video_filename)
+            if not only_subs:
+                # 获取下载的文件路径
+                video_filename = ydl.prepare_filename(info)
+                video_path = Path(video_filename)
+                
+                # 获取文件大小
+                file_size = video_path.stat().st_size if video_path.exists() else 0
+
+                # 验证下载结果
+                if not video_path.exists():
+                    raise Exception("Video file not found after download")
+
+                print(f"\n✅ 视频下载完成: {video_path.name}")
+                print(f"   大小: {format_file_size(file_size)}")
+            else:
+                # 只下载字幕的情况
+                video_path = None
+                file_size = 0
+                print(f"\n✅ 视频信息获取完成 (已跳过下载)")
 
             # 查找字幕文件
             subtitle_path = None
+            
+            # 如果 video_path 为 None，我们需要构造一个预期的视频路径来推算字幕路径
+            # ydl.prepare_filename 即使在 skip_download=True 也会给出预期的 mp4 路径
+            expected_video_path = Path(ydl.prepare_filename(info))
+
             subtitle_exts = ['.en.vtt', '.vtt']
             for ext in subtitle_exts:
-                potential_sub = video_path.with_suffix(ext)
+                potential_sub = expected_video_path.with_suffix(ext)
                 # 处理带语言代码的字幕文件
                 if not potential_sub.exists():
                     # 尝试 <filename>.en.vtt 格式
-                    stem = video_path.stem
-                    potential_sub = video_path.parent / f"{stem}.en.vtt"
+                    stem = expected_video_path.stem
+                    potential_sub = expected_video_path.parent / f"{stem}.en.vtt"
 
                 if potential_sub.exists():
                     subtitle_path = potential_sub
                     break
-
-            # 获取文件大小
-            file_size = video_path.stat().st_size if video_path.exists() else 0
-
-            # 验证下载结果
-            if not video_path.exists():
-                raise Exception("Video file not found after download")
-
-            print(f"\n✅ 视频下载完成: {video_path.name}")
-            print(f"   大小: {format_file_size(file_size)}")
 
             if subtitle_path and subtitle_path.exists():
                 print(f"✅ 字幕下载完成: {subtitle_path.name}")
@@ -140,7 +165,7 @@ def download_video(url: str, output_dir: str = None) -> dict:
                 print(f"   提示：某些视频可能没有字幕或需要自动生成")
 
             return {
-                'video_path': str(video_path),
+                'video_path': str(video_path) if video_path else None,
                 'subtitle_path': str(subtitle_path) if subtitle_path else None,
                 'title': title,
                 'duration': duration,
@@ -181,20 +206,17 @@ def _progress_hook(d):
         print()  # 换行
 
 
-def main():
-    """命令行入口"""
-    if len(sys.argv) < 2:
-        print("Usage: python download_video.py <youtube_url> [output_dir]")
-        print("\nExample:")
-        print("  python download_video.py https://youtube.com/watch?v=Ckt1cj0xjRM")
-        print("  python download_video.py https://youtube.com/watch?v=Ckt1cj0xjRM ~/Downloads")
-        sys.exit(1)
-
-    url = sys.argv[1]
-    output_dir = sys.argv[2] if len(sys.argv) > 2 else None
+    import argparse
+    parser = argparse.ArgumentParser(description="下载 YouTube 视频和字幕")
+    parser.add_argument("url", help="YouTube URL")
+    parser.add_argument("output_dir", nargs="?", default=None, help="输出目录")
+    parser.add_argument("--only-subs", action="store_true", help="只下载字幕")
+    parser.add_argument("--max-height", type=int, default=1080, help="最高视频高度 (默认 1080)")
+    
+    args = parser.parse_args()
 
     try:
-        result = download_video(url, output_dir)
+        result = download_video(args.url, args.output_dir, args.only_subs, args.max_height)
 
         # 输出 JSON 结果（供其他脚本使用）
         print("\n" + "="*60)

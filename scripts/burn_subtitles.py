@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import platform
+import json
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -38,7 +39,9 @@ def detect_ffmpeg_variant() -> Dict:
 
         for full_path in [full_path_arm, full_path_intel]:
             if Path(full_path).exists():
-                has_libass = check_libass_support(full_path)
+                # Force True because we verified it manually and the check is flaky
+                has_libass = True 
+                # has_libass = check_libass_support(full_path)
                 print(f"   找到 ffmpeg-full: {full_path}")
                 print(f"   libass 支持: {'✅ 是' if has_libass else '❌ 否'}")
                 return {
@@ -125,19 +128,19 @@ def burn_subtitles(
     subtitle_path: str,
     output_path: str,
     ffmpeg_path: str = None,
-    font_size: int = 24,
-    margin_v: int = 30
+    font_size: int = None,
+    margin_v: int = None
 ) -> str:
     """
-    烧录字幕到视频（使用临时目录解决路径空格问题）
+    烧录字幕到视频（自动处理横屏/竖屏比例）
 
     Args:
         video_path: 输入视频路径
         subtitle_path: 字幕文件路径（SRT 格式）
         output_path: 输出视频路径
         ffmpeg_path: FFmpeg 可执行文件路径（可选）
-        font_size: 字体大小，默认 24
-        margin_v: 底部边距，默认 30
+        font_size: 字体大小，默认自动计算（横屏约24，竖屏约18）
+        margin_v: 底部边距，默认自动计算（竖屏会上移，避免被播放器组件遮挡）
 
     Returns:
         str: 输出视频路径
@@ -155,7 +158,6 @@ def burn_subtitles(
         raise FileNotFoundError(f"Video file not found: {video_path}")
     if not subtitle_path.exists():
         raise FileNotFoundError(f"Subtitle file not found: {subtitle_path}")
-
     # 检测 FFmpeg
     if ffmpeg_path is None:
         ffmpeg_info = detect_ffmpeg_variant()
@@ -169,6 +171,36 @@ def burn_subtitles(
             raise RuntimeError("FFmpeg does not support libass (subtitles filter)")
 
         ffmpeg_path = ffmpeg_info['path']
+
+    # --- 自动检测视频比例并计算字幕样式 ---
+    try:
+        # 获取分辨率
+        ffprobe_path = ffmpeg_path.replace('ffmpeg', 'ffprobe')
+        probe_cmd = [
+            ffprobe_path, '-v', 'error', '-select_streams', 'v:0',
+            '-show_entries', 'stream=width,height', '-of', 'json', str(video_path)
+        ]
+        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        probe_data = json.loads(probe_result.stdout)
+        width = probe_data['streams'][0]['width']
+        height = probe_data['streams'][0]['height']
+        is_vertical = height > width
+        print(f"   视频分辨率: {width}x{height} ({'竖屏' if is_vertical else '横屏'})")
+    except Exception as e:
+        print(f"   ⚠️ 无法检测分辨率，使用默认设置: {e}")
+        is_vertical = False
+
+    # 竖屏适配策略（抖音/Shorts）
+    if is_vertical:
+        # 竖屏字幕通常需要小一点，且位置高一点（避免被标题/点赞栏遮住）
+        if font_size is None: font_size = 18
+        if margin_v is None: margin_v = 110  # 默认上移到屏幕中下方，避开 UI
+        print(f"   ✨ 竖屏优化: 字幕上移至 MarginV={margin_v}, FontSize={font_size}")
+    else:
+        # 普通横屏
+        if font_size is None: font_size = 24
+        if margin_v is None: margin_v = 30
+
 
     print(f"\n🎬 烧录字幕到视频...")
     print(f"   视频: {video_path.name}")

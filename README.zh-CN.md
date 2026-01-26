@@ -15,6 +15,7 @@
 
 - **AI 语义分析** - 通过理解视频内容生成精细章节（每个 2-5 分钟），而非机械按时间切分
 - **精确剪辑** - 使用 FFmpeg 以帧精度提取视频片段
+- **AI 语音转字幕** - 集成 OpenAI Whisper，支持无字幕视频自动生成英文 SRT
 - **双语字幕** - 批量翻译字幕为中英双语，减少 95% 的 API 调用
 - **字幕烧录** - 将双语字幕硬编码到视频中，支持自定义样式
 - **内容总结** - 自动生成适合社交媒体的文案（小红书、抖音、微信公众号）
@@ -63,6 +64,8 @@ bash install_as_skill.sh
 - `yt-dlp` - YouTube 下载器
 - `pysrt` - SRT 字幕解析器
 - `python-dotenv` - 环境变量管理
+- `openai-whisper` - AI 语音识别 (ASR)
+- `torch` - 深度学习框架 (Whisper 依赖)
 
 ### 重要：FFmpeg libass 支持
 
@@ -100,14 +103,33 @@ Clip this YouTube video: https://youtube.com/watch?v=VIDEO_ID
 剪辑这个 YouTube 视频：https://youtube.com/watch?v=VIDEO_ID
 ```
 
-### 工作流程
+### 工作流程 (针对无字幕视频)
 
-1. **环境检测** - 验证 yt-dlp、FFmpeg 和 Python 依赖
+如果 YouTube 视频没有提供英文字幕：
+1. **模式 1**：输入 URL 下载视频（脚本会提示找不到字幕）。
+2. **模式 2**：选择“AI 转录”，调用你系统已有的 Whisper 生成英文字幕。
+3. **模式 3 & 4**：接下来的步骤与普通视频一致。
+
+### 工作流程 (标准视频)
+
+1. **环境检测** - 验证 yt-dlp、Whisper、FFmpeg 和 Python 依赖
 2. **视频下载** - 下载视频（最高 1080p）和英文字幕
-3. **AI 章节分析** - Claude 分析字幕生成语义章节（每个 2-5 分钟）
-4. **用户选择** - 选择要剪辑的章节和处理选项
-5. **处理** - 剪辑视频、翻译字幕、烧录字幕（如果需要）
-6. **输出** - 组织文件到 `./youtube-clips/<时间戳>/`
+3. **AI 转录 (可选)** - 若原视频无字幕，使用 Whisper 生成英文字幕
+4. **AI 章节分析** - Claude 分析字幕生成语义章节（每个 2-5 分钟），并保存为 `chapters.json`
+5. **一键处理 (准备)** - 运行 `batch_processor.py` 自动剪辑并提取字幕
+6. **AI 翻译** - Claude 翻译提取出的字幕文件
+7. **一键处理 (终结)** - 运行 `batch_processor.py --finalize` 自动烧录字幕并生成结果
+8. **输出** - 组织文件到 `./youtube-clips/<时间戳>/`
+
+---
+
+### 🚀 设置说明
+
+如果你已经安装了 Whisper (通过 `brew install whisper` 或 `pip install openai-whisper`)，本助手会**自动调用你已有的工具和模型**，不会产生重复下载。
+
+- **Whisper 路径**: 自动搜索 `/opt/homebrew/bin/whisper` 或系统 PATH
+- **模型位置**: 使用你原有的 `~/.cache/whisper` 模型缓存
+- **FFmpeg**: 必须使用 `ffmpeg-full` 以支持字幕硬压制。
 
 ### 输出文件
 
@@ -180,10 +202,11 @@ TARGET_CHAPTER_DURATION=180
 剪辑这个讲座视频并创建双语字幕：https://youtube.com/watch?v=LECTURE_ID
 ```
 
-**选项**：
-- 生成双语字幕：是
-- 烧录字幕到视频：是
-- 生成总结：是
+**自动化流程**：
+1. Claude 分析视频并生成 `chapters.json`
+2. 执行准备命令：`python3 scripts/batch_processor.py <video> <subtitle> chapters.json`
+3. Claude 翻译生成的字幕文件
+4. 执行终结命令：`python3 scripts/batch_processor.py <video> <subtitle> chapters.json --finalize`
 
 **结果**：可直接在社交媒体平台分享的高质量剪辑视频
 
@@ -275,6 +298,14 @@ YT_DLP_PROXY=socks5://proxy-server:port
 - 移除特殊字符：`/ \ : * ? " < > |`
 - 将空格替换为下划线
 - 限制长度为 100 字符
+
+### 原视频已有字幕怎么办？
+
+**软字幕（CC）**：
+目前工具设定为只下载英文字幕作为翻译源。如果原视频包含中文 CC 字幕，会被忽略，工具将基于英文字幕重新生成中英双语字幕。
+
+**硬字幕（画面自带）**：
+工具生成的字幕默认烧录在视频底部，可能会与原视频自带的硬字幕重叠。建议选择无硬字幕的视频源（生肉），或修改 `scripts/burn_subtitles.py` 中的 `MarginV` 参数调整字幕位置。
 
 ---
 
