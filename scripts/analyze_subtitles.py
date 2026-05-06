@@ -17,38 +17,43 @@ from utils import (
 )
 
 
-def parse_vtt(vtt_path: str) -> List[Dict]:
+def parse_subtitles(file_path: str) -> List[Dict]:
     """
-    解析 VTT 字幕文件
+    解析 VTT 或 SRT 字幕文件
 
     Args:
-        vtt_path: VTT 文件路径
+        file_path: 字幕文件路径
 
     Returns:
         List[Dict]: 字幕列表，每项包含 {start, end, text}
-
-    Example:
-        [
-            {'start': 0.0, 'end': 3.5, 'text': 'Hello world'},
-            {'start': 3.5, 'end': 7.2, 'text': 'This is a test'},
-            ...
-        ]
     """
-    vtt_path = Path(vtt_path)
+    file_path = Path(file_path)
 
-    if not vtt_path.exists():
-        raise FileNotFoundError(f"Subtitle file not found: {vtt_path}")
+    if not file_path.exists():
+        raise FileNotFoundError(f"Subtitle file not found: {file_path}")
 
-    print(f"📊 解析字幕文件: {vtt_path.name}")
+    print(f"📊 解析字幕文件: {file_path.name}")
+
+    if file_path.suffix.lower() == '.srt':
+        try:
+            from translate_subtitles import load_subtitles_from_srt
+            return load_subtitles_from_srt(str(file_path))
+        except Exception as e:
+            print(f"   ⚠️ 使用 pysrt 解析失败，尝试手动解析: {e}")
+            # Fallback to simple parsing if pysrt fails
 
     subtitles = []
 
-    with open(vtt_path, 'r', encoding='utf-8') as f:
+    with open(file_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
-    # 移除 WEBVTT 头部和样式信息
+    # 移除 WEBVTT 头部
     content = re.sub(r'^WEBVTT.*?\n\n', '', content, flags=re.DOTALL)
-    content = re.sub(r'STYLE.*?-->', '', content, flags=re.DOTALL)
+
+    # 移除 STYLE 块（以 STYLE 开头到下一个空行或文件结尾）
+    # 注意：不能匹配到 -->，因为 STYLE 块不包含时间戳，
+    # 用 --> 作为终止符会从 STYLE 一路吞掉下一条有效字幕
+    content = re.sub(r'STYLE.*?(?:\n\n|$)', '', content, flags=re.DOTALL)
 
     # 分割字幕块
     blocks = content.strip().split('\n\n')
@@ -64,10 +69,10 @@ def parse_vtt(vtt_path: str) -> List[Dict]:
         text_lines = []
 
         for line in lines:
-            # 匹配时间戳格式: 00:00:00.000 --> 00:00:03.000
+            # 匹配时间戳格式: 00:00:00.000 --> 00:00:03.000 (VTT) 或 00:00:00,000 --> 00:00:03,000 (SRT)
             if '-->' in line:
                 timestamp_line = line
-            elif line and not line.isdigit():  # 跳过序号
+            elif line and not line.strip().isdigit():  # 跳过序号
                 text_lines.append(line)
 
         if not timestamp_line or not text_lines:
@@ -75,23 +80,22 @@ def parse_vtt(vtt_path: str) -> List[Dict]:
 
         # 解析时间戳
         try:
-            # 移除可能的位置信息（如 align:start position:0%）
+            # 移除可能的位置信息
             timestamp_line = re.sub(r'align:.*|position:.*', '', timestamp_line).strip()
 
             times = timestamp_line.split('-->')
             start_str = times[0].strip()
             end_str = times[1].strip()
 
+            # utils.py 中的 time_to_seconds 已修复，可处理点和逗号
             start = time_to_seconds(start_str)
             end = time_to_seconds(end_str)
 
             # 合并文本行
             text = ' '.join(text_lines)
 
-            # 清理 HTML 标签（如果有）
+            # 清理 HTML 标签
             text = re.sub(r'<[^>]+>', '', text)
-
-            # 清理特殊字符
             text = text.strip()
 
             if text:
@@ -100,9 +104,7 @@ def parse_vtt(vtt_path: str) -> List[Dict]:
                     'end': end,
                     'text': text
                 })
-
-        except Exception as e:
-            # 跳过无法解析的字幕块
+        except Exception:
             continue
 
     print(f"   找到 {len(subtitles)} 条字幕")
@@ -203,7 +205,7 @@ def main():
 
     try:
         # 解析字幕
-        subtitles = parse_vtt(vtt_file)
+        subtitles = parse_subtitles(vtt_file)
 
         if not subtitles:
             print("❌ 未找到有效字幕")

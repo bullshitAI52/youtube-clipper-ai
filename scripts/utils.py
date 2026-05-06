@@ -33,8 +33,8 @@ def time_to_seconds(time_str: str) -> float:
         >>> time_to_seconds("45.678")
         45.678
     """
-    # 移除空格
-    time_str = time_str.strip()
+    # 移除空格并将逗号替换为点（支持 SRT 格式）
+    time_str = time_str.strip().replace(',', '.')
 
     # 分割时间部分
     parts = time_str.split(':')
@@ -304,10 +304,14 @@ if __name__ == "__main__":
     # 测试代码
     print("Testing utils.py...")
 
+    def is_close(a, b, rel_tol=1e-09, abs_tol=0.0):
+        return abs(a-b) <= max(rel_tol * max(abs(a), abs(b)), abs_tol)
+
     # 测试时间转换
-    assert time_to_seconds("01:23:45.678") == 5025.678
-    assert time_to_seconds("23:45.678") == 1425.678
-    assert time_to_seconds("45.678") == 45.678
+    assert is_close(time_to_seconds("01:23:45.678"), 5025.678)
+    assert is_close(time_to_seconds("23:45.678"), 1425.678)
+    assert is_close(time_to_seconds("45.678"), 45.678)
+    assert is_close(time_to_seconds("00:00:01,500"), 1.5)
 
     # 测试文件名清理
     assert sanitize_filename("Hello: World?") == "Hello_World"

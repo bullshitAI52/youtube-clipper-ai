@@ -61,8 +61,11 @@ def extract_subtitle_clip(vtt_file, start_time, end_time, output_file):
             sub_start = parse_vtt_time(sub_start_str)
             sub_end = parse_vtt_time(sub_end_str)
 
-            # 检查是否在目标时间范围内
-            if sub_start >= start_seconds and sub_end <= end_seconds:
+            # 检查是否与目标时间范围有交集（包含完全在范围内和部分重叠）
+            in_range = sub_start >= start_seconds and sub_end <= end_seconds
+            overlaps = sub_start < end_seconds and sub_end > start_seconds
+
+            if in_range or overlaps:
                 # 收集字幕文本
                 i += 1
                 text_lines = []
@@ -72,9 +75,9 @@ def extract_subtitle_clip(vtt_file, start_time, end_time, output_file):
 
                 text = ' '.join(text_lines)
 
-                # 调整时间戳（减去起始时间）
-                adjusted_start = sub_start - start_seconds
-                adjusted_end = sub_end - start_seconds
+                # 调整时间戳（减去起始时间），并夹紧边界
+                adjusted_start = max(0.0, sub_start - start_seconds)
+                adjusted_end = min(end_seconds - start_seconds, sub_end - start_seconds)
 
                 subtitles.append({
                     'start': adjusted_start,

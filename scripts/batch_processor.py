@@ -13,7 +13,7 @@ from typing import List, Dict, Optional
 # Import existing scripts
 sys.path.append(str(Path(__file__).parent))
 from clip_video import clip_video, extract_subtitle_segment, save_subtitles_as_srt
-from analyze_subtitles import parse_vtt
+from analyze_subtitles import parse_subtitles
 from burn_subtitles import burn_subtitles
 from translate_subtitles import create_bilingual_subtitles
 from generate_summary import create_chapter_info, generate_summary
@@ -113,7 +113,7 @@ def process_batch(
     print(f"   章节数: {len(chapters)}")
 
     # Load full subtitles once
-    full_subtitles = parse_vtt(str(subtitle_path))
+    full_subtitles = parse_subtitles(str(subtitle_path))
 
     for i, chapter in enumerate(chapters, 1):
         title = chapter.get('title', f'Chapter_{i}')

@@ -53,11 +53,14 @@ def download_video(url: str, output_dir: str = None, only_subs: bool = False, ma
 
     # 设置输出目录
     if output_dir is None:
-        output_dir = Path.cwd()
+        output_dir = Path.cwd() / "download"
     else:
         output_dir = Path(output_dir)
 
     output_dir = ensure_directory(output_dir)
+
+    # 自动识别 FFmpeg 路径
+    ffmpeg_path = '/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg' if Path('/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg').exists() else '/usr/local/opt/ffmpeg-full/bin/ffmpeg' if Path('/usr/local/opt/ffmpeg-full/bin/ffmpeg').exists() else 'ffmpeg'
 
     if only_subs:
         print(f"📄 开始只下载字幕...")
@@ -73,10 +76,23 @@ def download_video(url: str, output_dir: str = None, only_subs: bool = False, ma
         'merge_output_format': 'mp4',
         'skip_download': only_subs, # 如果只下载字幕，则跳过视频下载
         
-        # 关键修复：使用 Android 客户端模拟以绕过 Web 下载限制和 impersonation 报错
+        # SSL 和 网络优化
+        'nocheckcertificate': True,
+        'retries': 15,
+        'fragment_retries': 15,
+        'ffmpeg_location': ffmpeg_path,
+        
+        # 伪装客户端和请求头 (解决 403 和 SABR 问题)
+        'http_header': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Sec-Fetch-Mode': 'navigate',
+        },
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios'],
+                'player_client': ['android', 'ios', 'web'],
+                'player_skip': ['webpage', 'configs'],
             }
         },
 
@@ -88,6 +104,12 @@ def download_video(url: str, output_dir: str = None, only_subs: bool = False, ma
         'writeautomaticsub': True,  # 自动字幕作为备选
         'subtitleslangs': ['en', 'zh', 'zh-Hans', 'zh-Hant', 'zh-CN', 'zh-TW'], # 尝试下载中英双语
         'subtitlesformat': 'vtt',   # VTT 格式
+        
+        # 兼容性设置
+        'prefer_ffmpeg': True,
+        'add_header': [
+            'Referer:https://www.google.com/'
+        ],
 
         # 不下载缩略图
         'writethumbnail': False,
@@ -98,13 +120,16 @@ def download_video(url: str, output_dir: str = None, only_subs: bool = False, ma
 
         # 进度钩子
         'progress_hooks': [_progress_hook],
+        
+        # 忽略错误（防止字幕下载失败导致整个视频下载终止）
+        'ignoreerrors': True,
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # 提取信息
-            print("\n📊 获取视频信息...")
-            info = ydl.extract_info(url, download=False)
+            # 一次调用完成信息提取和下载（避免两次网络请求）
+            print(f"\n📥 正在获取信息并下载...")
+            info = ydl.extract_info(url, download=True)
 
             title = info.get('title', 'Unknown')
             duration = info.get('duration', 0)
@@ -113,10 +138,6 @@ def download_video(url: str, output_dir: str = None, only_subs: bool = False, ma
             print(f"   标题: {title}")
             print(f"   时长: {get_video_duration_display(duration)}")
             print(f"   视频ID: {video_id}")
-
-            # 下载视频
-            print(f"\n📥 开始下载...")
-            info = ydl.extract_info(url, download=True)
 
             if not only_subs:
                 # 获取下载的文件路径
@@ -209,6 +230,7 @@ def _progress_hook(d):
         print()  # 换行
 
 
+def main():
     import argparse
     parser = argparse.ArgumentParser(description="下载 YouTube 视频和字幕")
     parser.add_argument("url", help="YouTube URL")

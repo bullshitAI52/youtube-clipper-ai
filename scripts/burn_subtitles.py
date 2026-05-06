@@ -236,10 +236,14 @@ def burn_subtitles(
         # 构建 FFmpeg 命令
         # 使用 subtitles 滤镜烧录字幕
         if subtitle_path.suffix.lower() == '.ass':
-            # ASS 字幕通常自带样式，不强制重写（除非后续需要动态调整渲染）
-            subtitle_filter = f"subtitles={temp_subtitle}"
+            # ASS 字幕通常自带样式，不强制重写
+            # 路径中的冒号在 FFmpeg 滤镜关键字中需要转义
+            safe_temp_subtitle = temp_subtitle.replace('\\', '/').replace(':', '\\:')
+            subtitle_filter = f"subtitles='{safe_temp_subtitle}'"
         else:
-            subtitle_filter = f"subtitles={temp_subtitle}:force_style='FontSize={font_size},MarginV={margin_v}'"
+            # 路径中的冒号在 FFmpeg 滤镜关键字中需要转义
+            safe_temp_subtitle = temp_subtitle.replace('\\', '/').replace(':', '\\:')
+            subtitle_filter = f"subtitles='{safe_temp_subtitle}':force_style='FontSize={font_size},MarginV={margin_v}'"
 
         cmd = [
             ffmpeg_path,

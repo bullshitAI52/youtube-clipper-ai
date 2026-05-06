@@ -82,8 +82,11 @@ def transcribe_video(video_path: str, model_name: str = "base", output_path: str
             print(f"Stderr: {result.stderr}")
             return None
 
-        # Whisper 默认生成的命名是 [video_stem].srt
-        generated_file = output_dir / (video_path.stem + ".srt")
+        # Whisper 默认生成的命名是 [video_stem].[lang].srt（如 video.en.srt）
+        # 同时也兼容 [video_stem].srt 的旧版格式
+        generated_file = output_dir / f"{video_path.stem}.en.srt"
+        if not generated_file.exists():
+            generated_file = output_dir / f"{video_path.stem}.srt"
         
         if generated_file.exists():
             # 重命名为预期的 .en.srt 避免混乱
